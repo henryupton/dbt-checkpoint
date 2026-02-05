@@ -458,17 +458,26 @@ def get_filenames(
 
 def get_use_dbt_cloud_cli() -> bool:
     """
-    Get and truthify the USE_DBT_CLOUD_CLI environment variable.
-    Returns True if set to 'true', '1', or 'yes' (case-insensitive).
+    Automatically detect if dbt Cloud CLI is installed.
+    Returns True if dbt Cloud CLI is detected, False for dbt Core.
     """
-    return os.environ.get("USE_DBT_CLOUD_CLI", "").lower() in ("true", "1", "yes")
+    return get_dbt_cli_type() == "cloud"
+
+
+_dbt_cli_type_cache: Optional[str] = None
 
 
 def get_dbt_cli_type() -> str:
     """
     Determine the installed dbt CLI type by checking version output.
     Returns 'cloud' if dbt Cloud CLI is detected, 'core' for dbt Core, or raises error if not installed.
+    Result is cached to avoid repeated subprocess calls.
     """
+    global _dbt_cli_type_cache
+
+    if _dbt_cli_type_cache is not None:
+        return _dbt_cli_type_cache
+
     try:
         result = subprocess.run(
             ["dbt", "--version"],
@@ -481,29 +490,16 @@ def get_dbt_cli_type() -> str:
 
         version_output = result.stdout + result.stderr
         if "dbt Cloud CLI" in version_output:
-            return "cloud"
+            _dbt_cli_type_cache = "cloud"
         elif "Core" in version_output or "dbt-core" in version_output:
-            return "core"
+            _dbt_cli_type_cache = "core"
         else:
             # Fallback - if we got here, dbt is installed but we can't determine type
-            return "core"
+            _dbt_cli_type_cache = "core"
+
+        return _dbt_cli_type_cache
     except FileNotFoundError:
         raise RuntimeError("dbt is not installed or not in PATH.")
-
-
-def validate_dbt_cli_type(use_dbt_cloud: bool) -> None:
-    """
-    Validate that the correct dbt CLI type is installed.
-    If USE_DBT_CLOUD_CLI is set, verify dbt Cloud CLI is installed.
-    """
-    cli_type = get_dbt_cli_type()
-
-    if use_dbt_cloud and cli_type != "cloud":
-        raise RuntimeError(
-            "USE_DBT_CLOUD_CLI is set but dbt Cloud CLI is not installed. "
-            f"Detected dbt CLI type: {cli_type}. "
-            "Please install dbt Cloud CLI or unset USE_DBT_CLOUD_CLI."
-        )
 
 
 def run_dbt_cmd(cmd: Sequence[Any]) -> int:
@@ -513,9 +509,6 @@ def run_dbt_cmd(cmd: Sequence[Any]) -> int:
 
     # Check if using dbt Cloud CLI and handle --project-dir
     use_dbt_cloud = get_use_dbt_cloud_cli()
-
-    # Validate dbt CLI type on first command execution
-    validate_dbt_cli_type(use_dbt_cloud)
 
     if use_dbt_cloud and "--project-dir" in cmd_list:
         project_dir_idx = cmd_list.index("--project-dir")
