@@ -21,6 +21,7 @@
 - [`check-model-has-tests-by-group`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-model-has-tests-by-group): Check the model has a number of tests from a group of tests.
 - [`check-model-has-tests`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-model-has-tests): Check the model has a number of tests.
 - [`check-model-name-contract`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-model-name-contract): Check model name abides to contract.
+- [`check-model-singular-naming`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-model-singular-naming): Check model names use singular form of words.
 - [`check-model-parents-and-childs`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-model-parents-and-childs): Check the model has a specific number (max/min) of parents or/and childs.
 - [`check-model-parents-database`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-model-parents-database): Check the parent model has a specific database.
 - [`check-model-parents-name-prefix`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-model-parents-name-prefix): Check the parent model names have a specific prefix.
@@ -54,6 +55,7 @@
 
 - [`check-macro-has-description`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-macro-has-description): Check the macro has description.
 - [`check-macro-arguments-have-desc`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-macro-arguments-have-desc): Check the macro arguments have description.
+- [`check-macro-matches-file`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-macro-matches-file): Check macro name matches file name.
 - [`check-macro-has-meta-keys`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#check-macro-has-meta-keys): Check the macro has meta keys
 
 **Exposure checks:**
@@ -83,6 +85,7 @@
 **dbt commands:**
 
 - [`dbt-clean`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#dbt-clean): Run `dbt clean` command.
+- [`dbt-clone`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#dbt-clone): Run `dbt clone` command.
 - [`dbt-compile`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#dbt-compile): Run `dbt compile` command.
 - [`dbt-deps`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#dbt-deps): Run `dbt deps` command.
 - [`dbt-docs-generate`](https://github.com/dbt-checkpoint/dbt-checkpoint/blob/main/HOOKS.md#dbt-docs-generate): Run `dbt docs generate` command.
@@ -797,6 +800,63 @@ You want to make sure your model names follow a naming convention (e.g., staging
 - The model name is obtained from the `SQL` file name.
 - The catalog is scanned for a model.
 - If any model does not match the regex pattern, the hook fails.
+
+---
+
+### `check-model-singular-naming`
+
+Check that model names use singular form of words. This ensures consistent naming conventions across your warehouse where tables represent single entities (e.g., `customer` not `customers`).
+
+#### Arguments
+
+`--exclude-words`: Comma-separated list of words to exclude from plural checking. Use this for edge cases like irregular plurals or business terms that end in 's'. Examples: `data,series,analytics,sales,address,status`<br/>
+`--exclude`: Regex pattern to exclude files.
+
+#### Example
+
+```
+repos:
+- repo: https://github.com/dbt-checkpoint/dbt-checkpoint
+ rev: v1.0.0
+ hooks:
+ - id: check-model-singular-naming
+   files: ^models/marts/
+   args: [--exclude-words, "data,series,analytics,sales", "--"]
+```
+
+:warning: do not forget to include `--` as the last argument. Otherwise `pre-commit` would not be able to separate a list of files with args.
+
+#### When to use it
+
+You want to enforce singular naming conventions for your models/tables. Common in dimensional modeling where tables represent single entities:
+- `dim_customer` not `dim_customers`
+- `fct_order` not `fct_orders`
+- `stg_product` not `stg_products`
+
+#### Requirements
+
+| Model exists in `manifest.json` <sup id="a1">[1](#f1)</sup> | Model exists in `catalog.json` <sup id="a2">[2](#f2)</sup> |
+| :---------------------------------------------------------: | :--------------------------------------------------------: |
+|                       :white_check_mark: Yes                |                        :x: Not needed                      |
+
+<sup id="f1">1</sup> It means that you need to run `dbt parse` before run this hook (dbt >= 1.5).<br/>
+<sup id="f2">2</sup> It means that you need to run `dbt docs generate` before run this hook.
+
+#### How it works
+
+- Hook takes all changed `SQL` files.
+- The model name is obtained from the `SQL` file name.
+- Each word in the model name is extracted (splitting by underscores, hyphens, spaces).
+- The `inflect` library checks if each word is plural.
+- If any plural words are found (and not in the exclusion list), the hook fails and suggests the singular form.
+- Very short words (2 characters or less) are automatically excluded as they're likely prefixes or acronyms.
+
+#### Common exclusion words
+
+You may want to exclude these common edge cases:
+- **Irregular plurals**: `data`, `series`, `analytics`, `metrics`, `statistics`
+- **Business terms ending in 's'**: `sales`, `address`, `status`, `process`, `progress`, `access`
+- **Domain-specific terms**: `news`, `headquarters`, `means`
 
 ---
 
@@ -1793,6 +1853,47 @@ If you `run` and then you delete argument description from a properties file, th
 
 ---
 
+### `check-macro-matches-file`
+
+Ensures that each macro is in its own file and the macro name matches the file name (without `.sql` extension).
+
+#### Arguments
+
+`--manifest`: location of `manifest.json` file. Usually `target/manifest.json`. This file contains a full representation of dbt project. **Default: `target/manifest.json`**
+
+#### Example
+
+```
+repos:
+- repo: https://github.com/dbt-checkpoint/dbt-checkpoint
+ rev: v0.1.1
+ hooks:
+ - id: check-macro-matches-file
+```
+
+#### When to use it
+
+You want to enforce a consistent structure where each macro is defined in its own file and the file name matches the macro name. This makes it easier to find and maintain macros.
+
+#### Requirements
+
+| Macro exists in `manifest.json` <sup id="a1">[1](#f1)</sup> | Macro exists in `catalog.json` <sup id="a2">[2](#f2)</sup> |
+| :---------------------------------------------------------: | :--------------------------------------------------------: |
+|                       :white_check_mark:                        |                       :x: Not needed                       |
+
+<sup id="f1">1</sup> It means that you need to run `dbt parse` before run this hook (dbt >= 1.5).<br/>
+<sup id="f2">2</sup> It means that you need to run `dbt docs generate` before run this hook.
+
+#### How it works
+
+- Hook takes all changed `SQL` macro files.
+- For each file, it checks:
+  - That only one macro is defined in the file
+  - That the macro name matches the file name (without `.sql` extension)
+- If a file contains multiple macros or the macro name doesn't match the file name, the hook fails.
+
+---
+
 ### `generate-missing-sources`
 
 If any source is missing this hook tries to create it.
@@ -2074,6 +2175,40 @@ repos:
  hooks:
  - id: dbt-compile
    args: ["--models", "state:modified", "--cmd-flags", "++defer", "++state", "path/to/artifacts", "--"]
+```
+
+:warning: do not forget to include `--` as the last argument. Otherwise `pre-commit` would not be able to separate a list of files with args.
+
+---
+
+### `dbt-clone`
+
+Run the `dbt clone` command. Clones selected nodes from the specified state to the target schema(s).
+
+#### Arguments
+
+`--global-flags`: Global dbt flags applicable to all subcommands. Instead of dash `-` please use `+`.</br>
+`--cmd-flags`: Command-specific dbt flags. Instead of dash `-` please use `+`.</br>
+
+#### Example
+
+```
+repos:
+- repo: https://github.com/dbt-checkpoint/dbt-checkpoint
+ rev: v1.0.0
+ hooks:
+ - id: dbt-clone
+```
+
+or
+
+```
+repos:
+- repo: https://github.com/dbt-checkpoint/dbt-checkpoint
+ rev: v1.0.0
+ hooks:
+ - id: dbt-clone
+   args: ["--cmd-flags", "++state", "./state", "--"]
 ```
 
 :warning: do not forget to include `--` as the last argument. Otherwise `pre-commit` would not be able to separate a list of files with args.
